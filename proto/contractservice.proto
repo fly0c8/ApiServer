@@ -1,7 +1,6 @@
 syntax = "proto3";
 
 package contractservice;
-option go_package = "contractservice";
 
 service ContractService {
     rpc AddContract(AddContractReq) returns (AddContractRes);
