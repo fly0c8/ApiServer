@@ -1,34 +1,29 @@
 package main
 
 import (
-	"context"
-	"github.com/fly0c8/ApiServer/model"
-	"github.com/fly0c8/ApiServer/mongorepo"
-	"github.com/fly0c8/ApiServer/postgresrepo"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/fly0c8/ApiServer/model"
+	"github.com/fly0c8/ApiServer/mongorepo"
+	"github.com/fly0c8/ApiServer/postgresrepo"
 
 	"github.com/fly0c8/ApiServer/contractservice"
 	"github.com/nats-io/nats.go"
 )
 
-
 type ContractRepository interface {
-	SaveContract(contract* model.ContractModel) bool
+	SaveContract(contract *model.ContractModel) bool
 }
 
-type Server struct{
-	nc *nats.Conn
-}
+var (
+	repos = []ContractRepository{
+		&mongorepo.MongoContractRepository{},
+		&postgresrepo.PostgresContractRepository{},
+	}
+)
 
-
-
-func (s *Server) AddContract(ctx context.Context, req *contractservice.AddContractReq) (*contractservice.AddContractRes, error) {
-	s.nc.Publish("config", []byte(req.ContractId))
-	res := &contractservice.AddContractRes{Success:true}
-	return res, nil
-}
 func main() {
 	nc, err := nats.Connect(
 		nats.DefaultURL,
@@ -40,17 +35,16 @@ func main() {
 	}
 	defer nc.Close()
 
-	mongoRepo := &mongorepo.MongoContractRepository{}
-	postgresRepo := &postgresrepo.PostgresContractRepository{}
-
 	_, err = nc.Subscribe("config", func(m *nats.Msg) {
 		log.Printf("%s\n", m.Data)
 		contract := &model.ContractModel{
 			UUID:       "",
 			ContractId: "",
 		}
-		mongoRepo.SaveContract(contract)
-		postgresRepo.SaveContract(contract)
+		for _, repo := range repos {
+			repo.SaveContract(contract)
+		}
+
 	})
 
 	if err != nil {
@@ -59,9 +53,7 @@ func main() {
 		log.Println("Successfully subscribed to config")
 	}
 
-
-
-	srv := &Server{nc:nc}
+	srv := contractservice.NewServer(nc)
 	twirphandler := contractservice.NewContractServiceServer(srv, nil)
 	http.ListenAndServe(":8080", twirphandler)
 
